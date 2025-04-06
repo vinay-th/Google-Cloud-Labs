@@ -29,34 +29,38 @@ echo
 read -p "$(echo -e ${MAGENTA_TEXT}${BOLD_TEXT}Enter the zone:${RESET_FORMAT} ) " ZONE
 export ZONE
 
-# Create storage bucket
+# Create a unique bucket name (if re-run)
+BUCKET_NAME="${DEVSHELL_PROJECT_ID}-web-script-bucket"
+
 echo
 echo "${GREEN_TEXT}${BOLD_TEXT}Creating a Cloud Storage bucket...${RESET_FORMAT}"
-gsutil mb gs://$DEVSHELL_PROJECT_ID
+gsutil mb -l $ZONE gs://$BUCKET_NAME
 
-# Copy startup script to bucket
+# Copy remote startup script to your bucket
 echo
-echo "${GREEN_TEXT}${BOLD_TEXT}Copying startup script to bucket...${RESET_FORMAT}"
-gsutil cp gs://cloud-training/gcpnet/auto-install-web.sh gs://$DEVSHELL_PROJECT_ID
+echo "${GREEN_TEXT}${BOLD_TEXT}Copying install-web.sh startup script to bucket...${RESET_FORMAT}"
+gsutil cp gs://spls/gsp301/install-web.sh gs://$BUCKET_NAME/
 
-# Create Compute Engine instance with startup script
+# Create Compute Engine instance with the startup script
 echo
-echo "${GREEN_TEXT}${BOLD_TEXT}Creating Compute Engine instance...${RESET_FORMAT}"
+echo "${GREEN_TEXT}${BOLD_TEXT}Creating Compute Engine instance (quickgcplab)...${RESET_FORMAT}"
 gcloud compute instances create quickgcplab \
   --project=$DEVSHELL_PROJECT_ID \
   --zone=$ZONE \
-  --machine-type=n1-standard-1 \
+  --machine-type=e2-micro \
   --tags=http-server \
-  --metadata startup-script-url=gs://$DEVSHELL_PROJECT_ID/auto-install-web.sh
+  --image-family=debian-11 \
+  --image-project=debian-cloud \
+  --metadata startup-script-url=gs://$BUCKET_NAME/install-web.sh
 
-# Add firewall rule to allow HTTP traffic
+# Add firewall rule (skip error if it already exists)
 echo
 echo "${GREEN_TEXT}${BOLD_TEXT}Creating firewall rule to allow HTTP traffic...${RESET_FORMAT}"
 gcloud compute firewall-rules create allow-http \
   --allow=tcp:80 \
   --description="Allow incoming HTTP traffic" \
   --direction=INGRESS \
-  --target-tags=http-server
+  --target-tags=http-server 2>/dev/null || echo "${YELLOW_TEXT}Firewall rule already exists. Skipping...${RESET_FORMAT}"
 
 # Completion message
 echo
@@ -65,4 +69,3 @@ echo "${GREEN_TEXT}${BOLD_TEXT}              LAB COMPLETED SUCCESSFULLY!        
 echo "${GREEN_TEXT}${BOLD_TEXT}     Check my GitHub: https://github.com/vinay-th      ${RESET_FORMAT}"
 echo "${GREEN_TEXT}${BOLD_TEXT}=======================================================${RESET_FORMAT}"
 echo ""
-
