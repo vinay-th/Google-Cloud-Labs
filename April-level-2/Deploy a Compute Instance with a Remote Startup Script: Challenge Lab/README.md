@@ -4,3 +4,5 @@ curl -LO raw.githubusercontent.com/vinay-th/Google-Cloud-Labs/main/April-level-2
 sudo chmod +x vinay.sh
 ./vinay.sh
 ```
+For timezone use
+```us-central1-c```
