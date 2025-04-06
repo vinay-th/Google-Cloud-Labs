@@ -1,45 +1,56 @@
+#!/bin/bash
+
 # Define color codes for output formatting
 YELLOW_COLOR=$'\033[0;33m'
 NO_COLOR=$'\033[0m'
-BACKGROUND_RED=`tput setab 1`
-GREEN_TEXT=`tput setab 2`
-RED_TEXT=`tput setaf 1`
+BACKGROUND_RED=$(tput setab 1)
+GREEN_TEXT=$(tput setab 2)
+RED_TEXT=$(tput setaf 1)
 
-BOLD_TEXT=`tput bold`
-RESET_FORMAT=`tput sgr0`
+BOLD_TEXT=$(tput bold)
+RESET_FORMAT=$(tput sgr0)
 
 echo "${BACKGROUND_RED}${BOLD_TEXT}Initiating Execution...${RESET_FORMAT}"
 
 # Prompt user to enter the desired compute zone
 read -p "${YELLOW_COLOR}${BOLD_TEXT}Enter ZONE:${RESET_FORMAT}" ZONE
 
+# Authenticate and configure project
 gcloud auth list
-
-export PROJECT_ID=$(gcloud config get-value project)
-
 export PROJECT_ID=$DEVSHELL_PROJECT_ID
-
-# Set the zone based on user input
 gcloud config set compute/zone $ZONE
 
-gcloud compute instances create quickstart-vm --project=$DEVSHELL_PROJECT_ID --zone=$ZONE --machine-type=e2-small --image-family=debian-11 --image-project=debian-cloud --tags=http-server,https-server && gcloud compute firewall-rules create default-allow-http --target-tags=http-server --allow tcp:80 --description="Allow HTTP traffic" && gcloud compute firewall-rules create default-allow-https --target-tags=https-server --allow tcp:443 --description="Allow HTTPS traffic"
+# Create a new Compute Engine instance with firewall rules
+gcloud compute instances create quickstart-vm \
+  --project=$PROJECT_ID \
+  --zone=$ZONE \
+  --machine-type=e2-small \
+  --image-family=debian-11 \
+  --image-project=debian-cloud \
+  --tags=http-server,https-server && \
+gcloud compute firewall-rules create default-allow-http \
+  --target-tags=http-server \
+  --allow tcp:80 \
+  --description="Allow HTTP traffic" && \
+gcloud compute firewall-rules create default-allow-https \
+  --target-tags=https-server \
+  --allow tcp:443 \
+  --description="Allow HTTPS traffic"
 
-cat > cp_disk.sh <<'EOF_CP'
+# Create and upload setup script
+cat > cp_disk.sh <<'EOF'
+#!/bin/bash
 
-sudo apt-get update && sudo apt-get install apache2 php
+sudo apt-get update && sudo apt-get install apache2 php -y
 
 curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
 sudo bash add-google-cloud-ops-agent-repo.sh --also-install
 
-# Configures Ops Agent to collect telemetry from the app and restart Ops Agent.
-
+# Backup existing config and set up Ops Agent
 set -e
-
-# Create a back up of the existing file so existing configurations are not lost.
 sudo cp /etc/google-cloud-ops-agent/config.yaml /etc/google-cloud-ops-agent/config.yaml.bak
 
-# Configure the Ops Agent.
-sudo tee /etc/google-cloud-ops-agent/config.yaml > /dev/null << EOF
+sudo tee /etc/google-cloud-ops-agent/config.yaml > /dev/null << EOF_INNER
 metrics:
   receivers:
     apache:
@@ -61,34 +72,36 @@ logging:
         receivers:
           - apache_access
           - apache_error
-EOF
+EOF_INNER
 
 sudo service google-cloud-ops-agent restart
 sleep 60
+EOF
 
-EOF_CP
+gcloud compute scp cp_disk.sh quickstart-vm:/tmp --project=$PROJECT_ID --zone=$ZONE --quiet
 
-gcloud compute scp cp_disk.sh quickstart-vm:/tmp --project=$DEVSHELL_PROJECT_ID --zone=$ZONE --quiet
+# SSH and execute setup script
+gcloud compute ssh quickstart-vm --project=$PROJECT_ID --zone=$ZONE --quiet --command="bash /tmp/cp_disk.sh"
 
-gcloud compute ssh quickstart-vm --project=$DEVSHELL_PROJECT_ID --zone=$ZONE --quiet --command="bash /tmp/cp_disk.sh"
-
-cat > cp-channel.json <<EOF_CP
+# Create notification channel config
+cat > cp-channel.json <<EOF
 {
   "type": "pubsub",
-  "displayName": "arcadecrew",
-  "description": "subscribe to arcadecrew",
+  "displayName": "channel-display-name",
+  "description": "demo subscription channel",
   "labels": {
-    "topic": "projects/$DEVSHELL_PROJECT_ID/topics/notificationTopic"
+    "topic": "projects/$PROJECT_ID/topics/notificationTopic"
   }
 }
-EOF_CP
+EOF
 
 gcloud beta monitoring channels create --channel-content-from-file=cp-channel.json
 
 email_channel=$(gcloud beta monitoring channels list)
 channel_id=$(echo "$email_channel" | grep -oP 'name: \K[^ ]+' | head -n 1)
 
-cat > stopped-vm-alert-policy.json <<EOF_CP
+# Create alert policy JSON
+cat > stopped-vm-alert-policy.json <<EOF
 {
   "displayName": "Apache traffic above threshold",
   "userLabels": {},
@@ -123,12 +136,11 @@ cat > stopped-vm-alert-policy.json <<EOF_CP
   ],
   "severity": "SEVERITY_UNSPECIFIED"
 }
-EOF_CP
+EOF
 
 gcloud alpha monitoring policies create --policy-from-file=stopped-vm-alert-policy.json
 
-
-
 # Completion message
+echo
 echo -e "${RED_TEXT}${BOLD_TEXT}Lab Completed Successfully!${RESET_FORMAT}"
-echo -e "${GREEN_TEXT}${BOLD_TEXT}Check out our Channel: \e]8;;https://www.youtube.com/@Arcade61432\e\\https://www.youtube.com/@Arcade61432\e]8;;\e\\${RESET_FORMAT}"
+echo -e "${GREEN_TEXT}${BOLD_TEXT}Check out my GitHub: https://github.com/vinay-th${RESET_FORMAT}"
